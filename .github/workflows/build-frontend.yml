@@ -31,7 +31,7 @@ on:
 # ============================================================================
 env:
   DOCKER_HUB_REGISTRY: docker.io
-  DOCKER_HUB_NAMESPACE: ${{ vars.DOCKER_HUB_NAMESPACE || 'tu-usuario' }}
+  DOCKER_HUB_NAMESPACE: ${{ vars.DOCKER_HUB_NAMESPACE || 'guerben' }}
   
   # Información de la imagen
   IMAGE_NAME: frontend
