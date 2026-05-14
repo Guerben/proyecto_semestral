@@ -32,7 +32,7 @@ on:
 env:
   # Configuración de Docker Hub (variable de repositorio DOCKER_HUB_NAMESPACE o valor por defecto)
   DOCKER_HUB_REGISTRY: docker.io
-  DOCKER_HUB_NAMESPACE: ${{ vars.DOCKER_HUB_NAMESPACE || 'tu-usuario' }}
+  DOCKER_HUB_NAMESPACE: ${{ vars.DOCKER_HUB_NAMESPACE || 'guerben' }}
   
   # Información de la imagen
   IMAGE_NAME: api-ventas
