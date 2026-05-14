@@ -1,0 +1,95 @@
+# Despliegue: empaqueta el repo → S3 → EC2 descarga ZIP → docker compose build/up.
+# Requisitos en la EC2: Docker + compose plugin, AWS CLI (o rol IAM), unzip, /opt/isy1101/.env
+# Ver guía detallada: DEPLOY-EC2.md
+
+name: Deploy to EC2 (S3 + build en servidor)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-ec2
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Empaquetar repositorio (ZIP)
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE}"
+          zip -r /tmp/release.zip . \
+            -x "./.git/*" \
+            -x "*/node_modules/*" \
+            -x "*/target/*" \
+            -x "./.cursor/*" \
+            -x "./.env" \
+            -x "*.zip"
+          ls -lh /tmp/release.zip
+
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Subir ZIP a S3
+        env:
+          BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          set -euo pipefail
+          test -n "${BUCKET:-}" || { echo "Falta el secreto S3_BUCKET"; exit 1; }
+          aws s3 cp /tmp/release.zip "s3://${BUCKET}/releases/${GITHUB_SHA}.zip"
+          aws s3 cp /tmp/release.zip "s3://${BUCKET}/releases/latest.zip"
+
+      - name: Preparar directorio en EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            sudo mkdir -p /opt/isy1101/repo
+            sudo chown -R "$USER:$USER" /opt/isy1101
+
+      - name: Descargar desde S3, descomprimir y desplegar Docker
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: S3_BUCKET,AWS_REGION
+          command_timeout: 45m
+          script: |
+            set -euo pipefail
+            if ! command -v unzip >/dev/null 2>&1; then
+              sudo apt-get update -qq && sudo apt-get install -y -qq unzip
+            fi
+            if ! command -v aws >/dev/null 2>&1; then
+              sudo apt-get update -qq && sudo apt-get install -y -qq awscli
+            fi
+            test -f /opt/isy1101/.env || { echo "Falta /opt/isy1101/.env en la EC2 (ver DEPLOY-EC2.md sección 8)"; exit 1; }
+            aws s3 cp "s3://${S3_BUCKET}/releases/latest.zip" /tmp/release.zip --region "${AWS_REGION}"
+            rm -rf /opt/isy1101/repo
+            mkdir -p /opt/isy1101/repo
+            unzip -o /tmp/release.zip -d /opt/isy1101/repo
+            cd /opt/isy1101/repo
+            test -f docker-compose.yml || { echo "No se encontró docker-compose.yml tras descomprimir"; exit 1; }
+            docker compose --env-file /opt/isy1101/.env -f docker-compose.yml build
+            docker compose --env-file /opt/isy1101/.env -f docker-compose.yml up -d --remove-orphans
+            docker compose --env-file /opt/isy1101/.env -f docker-compose.yml ps

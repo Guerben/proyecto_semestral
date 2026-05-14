@@ -1,0 +1,254 @@
+# ============================================================================
+# GitHub Actions Workflow - Frontend React
+# ============================================================================
+# Este workflow automatiza:
+# 1. Construcción de imagen Docker para React + Nginx
+# 2. Pruebas de seguridad (Trivy)
+# 3. Publicación en Docker Hub
+# 4. Versionado semántico de imágenes
+# ============================================================================
+
+name: Build & Publish - Frontend React
+
+# ============================================================================
+# TRIGGERS - Cuándo ejecutar este workflow
+# ============================================================================
+on:
+  # Ejecutar cuando hay push a rama main con cambios en este directorio
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'proyecto_semestral/front_despacho/**'
+      - '.github/workflows/build-frontend.yml'
+  
+  # Ejecutar manualmente desde GitHub UI
+  workflow_dispatch:
+
+# ============================================================================
+# VARIABLES DE ENTORNO
+# ============================================================================
+env:
+  DOCKER_HUB_REGISTRY: docker.io
+  DOCKER_HUB_NAMESPACE: ${{ vars.DOCKER_HUB_NAMESPACE || 'tu-usuario' }}
+  
+  # Información de la imagen
+  IMAGE_NAME: frontend
+  DOCKERFILE_PATH: proyecto_semestral/front_despacho/Dockerfile
+  BUILD_CONTEXT: proyecto_semestral/front_despacho
+
+# ============================================================================
+# JOBS
+# ============================================================================
+jobs:
+  # ========================================================================
+  # JOB 1: LINT - Validar código (eslint, prettier)
+  # ========================================================================
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 'proyecto_semestral/front_despacho/package-lock.json'
+      
+      - name: Install dependencies
+        working-directory: proyecto_semestral/front_despacho
+        run: npm ci
+      
+      - name: Run ESLint
+        working-directory: proyecto_semestral/front_despacho
+        run: npm run lint --if-present
+        continue-on-error: true
+      
+      - name: Check code format with Prettier
+        working-directory: proyecto_semestral/front_despacho
+        run: npm run format:check --if-present
+        continue-on-error: true
+
+  # ========================================================================
+  # JOB 2: TEST - Ejecutar pruebas unitarias
+  # ========================================================================
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 'proyecto_semestral/front_despacho/package-lock.json'
+      
+      - name: Install dependencies
+        working-directory: proyecto_semestral/front_despacho
+        run: npm ci
+      
+      - name: Run tests
+        working-directory: proyecto_semestral/front_despacho
+        run: npm test --if-present
+        continue-on-error: true
+
+  # ========================================================================
+  # JOB 3: BUILD - Construir la imagen Docker
+  # ========================================================================
+  build:
+    # Ejecutar después de lint y test
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    
+    # Continuar incluso si lint/test falla (solo para logging)
+    if: always()
+    
+    # Permisos necesarios
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    
+    # Variables de salida para otros jobs
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    
+    steps:
+      # ====================================================================
+      # STEP 1: Obtener código del repositorio
+      # ====================================================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Necesario para calcular versión semántica
+      
+      # ====================================================================
+      # STEP 2: Configurar QEMU para builds multiplataforma
+      # ====================================================================
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      
+      # ====================================================================
+      # STEP 3: Configurar BuildKit (motor de construcción avanzado)
+      # ====================================================================
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      # ====================================================================
+      # STEP 4: Calcular metadatos de la imagen (tags, versión)
+      # ====================================================================
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.DOCKER_HUB_REGISTRY }}/${{ env.DOCKER_HUB_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ github.run_number }}
+      
+      # ====================================================================
+      # STEP 5: Autenticar en Docker Hub
+      # ====================================================================
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_HUB_REGISTRY }}
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+      
+      # ====================================================================
+      # STEP 6: Construir imagen Docker con BuildKit
+      # ====================================================================
+      - name: Build Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          # Contexto y Dockerfile
+          context: ${{ env.BUILD_CONTEXT }}
+          file: ${{ env.DOCKERFILE_PATH }}
+          
+          # Plataformas soportadas
+          platforms: linux/amd64,linux/arm64
+          
+          # Tags de la imagen
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          
+          # Push a Docker Hub
+          push: true
+          
+          # Cachear layers para builds más rápidos
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          
+          # Build args
+          build-args: |
+            BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ steps.meta.outputs.version }}
+      
+      # ====================================================================
+      # STEP 7: Analizar seguridad con Trivy (scanner de vulnerabilidades)
+      # ====================================================================
+      - name: Security scan with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          # Tipo de imagen a analizar
+          image-ref: ${{ steps.meta.outputs.tags }}
+          
+          # Formato de salida
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          
+          # Configuración del scanner
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'  # No fallar el workflow si encuentra vulnerabilidades
+      
+      # ====================================================================
+      # STEP 8: Cargar resultados de seguridad a GitHub
+      # ====================================================================
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+      
+      # ====================================================================
+      # STEP 9: Generar evidencia de build
+      # ====================================================================
+      - name: Generate build report
+        run: |
+          echo "## Build Report - Frontend React" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image Tag**: ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image Digest**: ${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Time**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit SHA**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+# ============================================================================
+# SECRETOS REQUERIDOS EN GITHUB
+# ============================================================================
+# Configurar estos secretos en: Settings > Secrets and variables > Actions
+#
+# - DOCKER_HUB_USERNAME: Tu usuario de Docker Hub
+# - DOCKER_HUB_TOKEN: Personal Access Token de Docker Hub
+# - AWS_ROLE_TO_ASSUME: ARN del IAM Role para OIDC (opcional)
+#
+# Cómo obtener Docker Hub Token:
+# 1. Ir a Docker Hub > Account Settings > Security > New Access Token
+# 2. Generar token con permisos de lectura/escritura
+# 3. Copiar token a GitHub Secrets
+# ============================================================================

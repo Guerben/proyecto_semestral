@@ -1,0 +1,122 @@
+# Compose para EC2 / producción: usa imágenes publicadas (Docker Hub u otro registro).
+# En el servidor: coloca este archivo y un .env (ver .env.example y DEPLOY-EC2.md).
+# Uso: docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+
+networks:
+  app-network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1450
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
+
+volumes:
+  mysql-data:
+    driver: local
+  mysql-logs:
+    driver: local
+
+services:
+  db:
+    image: mysql:8.0-debian
+    container_name: proyecto_mysql_db
+    networks:
+      app-network:
+        ipv4_address: 172.30.0.2
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME:-proyecto_db}
+      MYSQL_USER: ${DB_USER:-appuser}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      TZ: America/Santiago
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - mysql-logs:/var/log/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "${DB_USER:-appuser}", "-p${DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  api-ventas:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_HUB_NAMESPACE}/api-ventas:${IMAGE_TAG:-latest}
+    pull_policy: always
+    container_name: proyecto_api_ventas
+    networks:
+      app-network:
+        ipv4_address: 172.30.0.3
+    environment:
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/${DB_NAME:-proyecto_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-appuser}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: ${SPRING_JPA_HIBERNATE_DDL_AUTO:-update}
+      SPRING_JPA_SHOW_SQL: "false"
+      SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: org.hibernate.dialect.MySQL8Dialect
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-production}
+      LOGGING_LEVEL_ROOT: INFO
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  api-despachos:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_HUB_NAMESPACE}/api-despachos:${IMAGE_TAG:-latest}
+    pull_policy: always
+    container_name: proyecto_api_despachos
+    networks:
+      app-network:
+        ipv4_address: 172.30.0.4
+    environment:
+      SERVER_PORT: 8081
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/${DB_NAME:-proyecto_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-appuser}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: ${SPRING_JPA_HIBERNATE_DDL_AUTO:-update}
+      SPRING_JPA_SHOW_SQL: "false"
+      SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: org.hibernate.dialect.MySQLDialect
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-production}
+      LOGGING_LEVEL_ROOT: INFO
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  frontend:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_HUB_NAMESPACE}/frontend:${IMAGE_TAG:-latest}
+    pull_policy: always
+    container_name: proyecto_frontend
+    networks:
+      app-network:
+        ipv4_address: 172.30.0.5
+    environment:
+      TZ: America/Santiago
+    depends_on:
+      api-ventas:
+        condition: service_healthy
+      api-despachos:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped

@@ -1,0 +1,281 @@
+# ============================================================================
+# .gitignore - Excluir archivos de control de versión
+# ============================================================================
+# Este archivo especifica qué archivos NO deben ser versionados en Git
+# Incluye archivos sensitivos, dependencias y artefactos de build
+
+# ============================================================================
+# ARCHIVOS DE ENTORNO Y SECRETOS
+# ============================================================================
+# ¡CRÍTICO! No versionar archivos con credenciales
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Archivos de configuración local
+.env.vault
+secrets.yml
+config.local.yml
+
+# ============================================================================
+# DOCKER & INFRAESTRUCTURA
+# ============================================================================
+# Archivos generados por Docker
+docker-compose.override.yml
+.dockerignore
+
+# Volúmenes locales
+volumes/
+data/
+
+# ============================================================================
+# BACKEND - JAVA/MAVEN
+# ============================================================================
+# Directorios de build y dependencias
+target/
+build/
+*.jar
+!*.jar.sha256
+*.war
+*.nar
+
+# IDEs
+.classpath
+.project
+.settings/
+*.jdtScope
+bin/
+.vscode/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Maven
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+
+# ============================================================================
+# FRONTEND - NODE/NPM
+# ============================================================================
+# Dependencias (se descargan del package.json)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist/
+build/
+*.bundle.js
+*.bundle.css
+
+# Cache de npm/yarn
+.npm
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ============================================================================
+# PYTHON (si se usa)
+# ============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# ============================================================================
+# SISTEMAS OPERATIVOS
+# ============================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Desktop.ini
+.win_info
+*.lnk
+
+# Linux
+.directory
+*~
+
+# ============================================================================
+# EDITORES DE TEXTO
+# ============================================================================
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+*.ownerDocument
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+.swp
+.swo
+*~
+.*.sw[a-z]
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# ============================================================================
+# LOGS Y TEMPORALES
+# ============================================================================
+*.log
+logs/
+*.log.*
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+
+# ============================================================================
+# BASES DE DATOS
+# ============================================================================
+# SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# MySQL/MariaDB dumps
+*.sql
+!schema.sql
+!seed.sql
+
+# Redis
+dump.rdb
+
+# ============================================================================
+# ARCHIVOS DE CONSTRUCCIÓN Y ANÁLISIS
+# ============================================================================
+# Coverage reports
+coverage/
+.coverage
+*.lcov
+.nyc_output/
+
+# Test results
+test-results/
+junit-results/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# SBOM (Software Bill of Materials)
+sbom/
+
+# ============================================================================
+# CREDENCIALES Y CERTIFICADOS
+# ============================================================================
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+
+# SSH
+.ssh/
+
+
+
+# ============================================================================
+# DOCKER & REGISTROS
+# ============================================================================
+# Cachés locales
+.docker/
+
+# Registros privados
+registry/
+
+# ============================================================================
+# CI/CD LOCALES
+# ============================================================================
+.github/workflows/secrets.yml
+
+# ============================================================================
+# SINCRONIZACIÓN DE NUBE
+# ============================================================================
+.sync/
+.dropbox/
+.onedrive/
+
+# ============================================================================
+# ARCHIVOS ESPECÍFICOS DEL PROYECTO
+# ============================================================================
+# Base de datos de desarrollo
+db.json
+# Si db.json contiene datos sensibles, descomenta:
+# db.json
+
+# Archivos generados por herramientas
+.generated/
+
+# ============================================================================
+# PERMITIR EXCEPCIONES
+# ============================================================================
+# Archivos que QUEREMOS versionar a pesar de las reglas anteriores
+# Usar ! para excepciones
+
+# Ejemplos de configuración (sin datos sensitivos)
+!.env.example
+!.env.development.example
+!.env.production.example
+
+# SQL de inicialización
+!init-db.sql
+!schema.sql
+!seed.sql
+
+# Archivos JAR específicos permitidos
+# !/libs/special-lib.jar
+
+# ============================================================================
+# ARCHIVOS A VERIFICAR ANTES DE COMMIT
+# ============================================================================
+# Este archivo intenta ser exhaustivo, pero SIEMPRE verifica antes de hacer push:
+# git status       # Ver cambios sin stagear
+# git diff         # Ver diferencias de archivos
+# git log --oneline -5    # Ver últimos commits
+# grep -r "password\|secret\|token" .  # Buscar palabras clave sensitivas

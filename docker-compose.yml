@@ -1,0 +1,296 @@
+version: '3.9'
+# REDES - Comunicación entre contenedores
+networks:
+  # Red principal para comunicación entre todos los servicios
+  app-network:
+    driver: bridge
+    driver_opts:
+      # Activa el DNS interno de Docker
+      com.docker.network.driver.mtu: 1450
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
+
+# VOLÚMENES - Persistencia de datos
+
+volumes:
+  # Volumen para almacenar datos de la base de datos MySQL
+  mysql-data:
+    driver: local
+  
+  # Volumen para logs de MySQL
+  mysql-logs:
+    driver: local
+
+# SERVICIOS
+services:
+
+  # BASE DE DATOS - MySQL 8.0
+  db:
+    # Usar imagen oficial de MySQL versión 8.0
+    image: mysql:8.0-debian
+    
+    # Nombre del contenedor
+    container_name: proyecto_mysql_db
+    
+    # Conectar a la red de aplicación
+    networks:
+      app-network:
+        ipv4_address: 172.30.0.2
+    
+    # Variables de entorno para configurar MySQL
+    environment:
+      # Contraseña del usuario root de MySQL
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-admin123}
+      
+      # Nombre de la base de datos inicial a crear
+      MYSQL_DATABASE: ${DB_NAME:-proyecto_db}
+      
+      # Usuario MySQL no-root para aplicaciones
+      MYSQL_USER: ${DB_USER:-appuser}
+      
+      # Contraseña del usuario de aplicación
+      MYSQL_PASSWORD: ${DB_PASSWORD:-appuser123}
+      
+      # Configuración de zona horaria
+      #TZ: America/Santiago
+    
+    # Sin mapeo al host: MySQL solo es alcanzable desde la red Docker (api-* → db)
+    
+    # Montar volúmenes para persistencia
+    volumes:
+      # Volumen para datos de la base de datos
+      - mysql-data:/var/lib/mysql
+      
+      # Volumen para logs de MySQL
+      - mysql-logs:/var/log/mysql
+      
+      # Script SQL para inicialización (opcional)
+      # - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    
+    # Health check para verificar que MySQL esté listo
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "${DB_USER:-appuser}", "-p${DB_PASSWORD:-appuser123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    
+    # Reinicio automático si falla
+    restart: unless-stopped
+    
+    # Limites de recursos
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  # API VENTAS - Spring Boot
+ 
+  api-ventas:
+    # Construir imagen desde Dockerfile local
+    build:
+      context: "./proyecto_semestral/back-Ventas_SpringBoot/Springboot-API-REST"
+      dockerfile: Dockerfile
+      # Argumentos para el build si es necesario
+      args:
+        BUILD_DATE: ${BUILD_DATE:-}
+    
+    # Nombre del contenedor
+    container_name: proyecto_api_ventas
+    
+    # Conectar a la red de aplicación
+    networks:
+      app-network:
+        ipv4_address: 172.30.0.3
+    
+    # Variables de entorno para la aplicación Spring Boot
+    environment:
+      # Puerto en el que escucha la aplicación
+      SERVER_PORT: 8080
+      
+      # Datos de conexión a la base de datos
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/${DB_NAME:-proyecto_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-appuser}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-appuser123}
+      
+      # Configuración JPA/Hibernate (update: crea/ajusta tablas en dev; validate falla si la BD está vacía)
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_SHOW_SQL: 'false'
+      SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: org.hibernate.dialect.MySQL8Dialect
+      
+      # Perfil de Spring Boot (development, production)
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-development}
+      
+      # Logging
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_COM_CITT: DEBUG
+    
+    # Sin mapeo al host: la API solo recibe tráfico desde la red Docker (p. ej. Nginx del frontend)
+    
+    # Dependencia: esperar a que la BD esté lista
+    depends_on:
+      db:
+        condition: service_healthy
+    
+    # Health check para verificar que la aplicación esté activa
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    
+    # Reinicio automático
+    restart: unless-stopped
+    
+    # Limites de recursos
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 768M
+        reservations:
+          cpus: '0.75'
+          memory: 512M
+
+  # API DESPACHOS - Spring Boot
+  api-despachos:
+    # Construir imagen desde Dockerfile local
+    build:
+      context: "./proyecto_semestral/back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO"
+      dockerfile: Dockerfile
+      args:
+        BUILD_DATE: ${BUILD_DATE:-}
+    
+    # Nombre del contenedor
+    container_name: proyecto_api_despachos
+    
+    # Conectar a la red de aplicación
+    networks:
+      app-network:
+        ipv4_address: 172.30.0.4
+    
+    # Variables de entorno para la aplicación Spring Boot
+    environment:
+      # Puerto en el que escucha la aplicación
+      SERVER_PORT: 8081
+      
+      # Datos de conexión a la base de datos
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/${DB_NAME:-proyecto_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-appuser}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-appuser123}
+      
+      # Configuración JPA/Hibernate
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_SHOW_SQL: 'false'
+      SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: org.hibernate.dialect.MySQLDialect
+      
+      # Perfil de Spring Boot
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-development}
+      
+      # Logging
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_COM_CITT: DEBUG
+    
+    # Sin mapeo al host: la API solo recibe tráfico desde la red Docker
+    # Dependencia: esperar a que la BD esté lista
+    depends_on:
+      db:
+        condition: service_healthy
+    
+    # Health check para verificar que la aplicación esté activa
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    
+    # Reinicio automático
+    restart: unless-stopped
+    
+    # Limites de recursos
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 768M
+        reservations:
+          cpus: '0.75'
+          memory: 512M
+
+  # FRONTEND - React + Nginx
+  frontend:
+    # Construir imagen desde Dockerfile local
+    build:
+      context: "./proyecto_semestral/front_despacho"
+      dockerfile: Dockerfile
+      args:
+        BUILD_DATE: ${BUILD_DATE:-}
+    
+    # Nombre del contenedor
+    container_name: proyecto_frontend
+    
+    # Conectar a la red de aplicación
+    networks:
+      app-network:
+        ipv4_address: 172.30.0.5
+    
+    environment:
+      TZ: America/Santiago
+    
+    # Tras las APIs: el navegador usa rutas relativas /api/v1/* y Nginx hace proxy interno
+    depends_on:
+      api-ventas:
+        condition: service_healthy
+      api-despachos:
+        condition: service_healthy
+    
+    # Puertos expostos (host:contenedor)
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    
+    # Health check para verificar que Nginx esté activo
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    
+    # Reinicio automático
+    restart: unless-stopped
+    
+    # Limites de recursos
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 256M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+
+# ============================================================================
+# CONFIGURACIÓN GLOBAL
+# ============================================================================
+# Para ejecutar: docker-compose up -d
+# Para detener: docker-compose down
+# Para ver logs: docker-compose logs -f
+# Para ejecutar comando en contenedor: docker-compose exec <servicio> <comando>
+#
+# Variables de entorno pueden definirse en archivo .env en el mismo directorio
+# Ejemplo de .env:
+# DB_ROOT_PASSWORD=admin123
+# DB_NAME=proyecto_db
+# DB_USER=appuser
+# DB_PASSWORD=appuser123
+# FRONTEND_PORT=3000
+# (DB y APIs no usan mapeo de puertos: acceso solo vía red Docker o docker compose exec)
+# SPRING_PROFILES_ACTIVE=development
+# ============================================================================
