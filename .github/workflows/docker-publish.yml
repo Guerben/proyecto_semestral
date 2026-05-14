@@ -28,20 +28,20 @@ jobs:
       - name: Build and push Frontend
         uses: docker/build-push-action@v5
         with:
-          context: ./proyecto_semestral/front_despacho
+          context: ./front_despacho
           push: true
           tags: ${{ secrets.DOCKER_HUB_USERNAME }}/frontend:latest
 
       - name: Build and push API Ventas
         uses: docker/build-push-action@v5
         with:
-          context: ./proyecto_semestral/back-Ventas_SpringBoot/Springboot-API-REST
+          context: ./back-Ventas_SpringBoot/Springboot-API-REST
           push: true
           tags: ${{ secrets.DOCKER_HUB_USERNAME }}/api-ventas:latest
 
       - name: Build and push API Despachos
         uses: docker/build-push-action@v5
         with:
-          context: ./proyecto_semestral/back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
+          context: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
           push: true
           tags: ${{ secrets.DOCKER_HUB_USERNAME }}/api-despachos:latest
